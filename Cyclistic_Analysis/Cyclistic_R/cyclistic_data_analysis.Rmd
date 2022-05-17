@@ -1,0 +1,811 @@
+---
+title: "Cyclistic data analysis"
+author: "Jose Gonzalez"
+date: '2022-03-26'
+output: html_document
+---
+
+## Google Data Analytics Certification - Case Study
+
+### Introduction
+The following report was made as a case study for the Google data analytics certification. The case study consists in applying the data analysis process to the data sets of a real life company called Divvy, which is a business branch of the company Lyft. For the purpose of this case study, the company will be named Cyclistic.
+
+Due to the size of the data sets, the programming language R was used to solve the case study. The code related to the analysis is included in this report.
+
+#### Additional Notes
+The case study will be solved by following the 6 steps of the data analysis process:
+
+1.  Ask
+2.  Prepare
+3.  Process
+4.  Analyze
+5.  Share
+6.  Act
+
+### Step 1 - Ask
+
+#### Company's Background
+Cyclistic, a company launched in 2016, has been offering bike-sharing services in the city of Chicago, Illinois, USA. The customers from this company can unlock geotracked bicycles from a local station and use it to travel around the city, after the trip these bicycles can be returned to any station inside the city.
+
+Cyclistic has implemented three types of purchasing plans for their services, these vary in price and duration: **single-ride** passes for one time rides, **full-day** passes and an **annual** membership.
+
+At the moment, the company has grown its inventory in active use of geotracked bicycles to a total number of 5,824 and 692 stations located across Chicago
+
+#### Problem Description
+Cyclistic's stakeholders, following the insight provided by the analytics team which states that the most profitable plan is the annual membership, believe that maximizing the amount of existing members with an annual membership is a top priority for the success of the company.
+
+The director of marketing has decided to design a new marketing strategy, aimed for the conversion of casual riders (one time and full-day members) into annual members.
+
+Three questions are important to be answered:
+
+1.  How do annual members and casual riders use Cyclistic bikes differently?
+2.  Why would casual riders buy Cyclistic annual memberships?
+3.  How can Cyclistic use digital media to influence casual riders to become members?
+
+The scope of this report will only focus on the first question:
+
+> How do annual members and casual riders use Cyclistic bikes differently?
+
+### Step 2 - Prepare
+
+#### Dataset description
+The data is stored in comma-separated values (CSV) files, twelve CSV files will be used for the analysis which corresponds to the months of March, 2021 until February, 2022. This data was generated and gathered by the company's bicycle stations spread around the city of Chicago.
+
+Each dataset contains structured data with more than 200,000 observations (which aggregates to over 5 million observations), and twelve variables:
+
++ **ride_id** - ride identifier 
++ **rideable_type** - type of bicycle used
++ **started_at** - date-time for the start of the ride
++ **ended_at** - date-time for the end of the ride
++ **start_station_name** - station name where the trip started
++ **start_station_id** - station id where the trip started
++ **end_station_name** - station name where the trip ended
++ **end_station_id** - station id where the trip ended
++ **start_lat** - starting latitude location information
++ **start_lng** - starting longitude location information
++ **end_lat** - ending latitude location information
++ **end_lng** - ending longitude location information
++ **member_casual** - user's membership category
+
+#### Information about the data
+The data to be used is publicly available within an Amazon Simple Storage Device (S3) at the following [link](https://divvy-tripdata.s3.amazonaws.com/index.html). The Personal Identifiable Information (PII) has been removed in order to protect the privacy of the users. The data has been made available by Motivate International Inc. under the following [license](https://ride.divvybikes.com/data-license-agreement).
+
+#### Limitations of the dataset
+The data from the past 12 months (since writing this report) will be used to answer the business task.
+
+#### Is it good or bad data? (ROCCC)
+The following guideline will help to understand whether the data is accurate and reliable.
+
+**R**eliable - The data is accurate, unbiased and complete
+
+**O**riginal - The date comes from a First Party Data
+
+**C**omprehensive - The dataset contains the necessary information
+
+**C**urrent - The dataset contains the past 12 months of data
+
+**C**ited - The data was made by the company
+
+In general, the datasets provided by the company have data integrity and it includes the relevant information required for the analysis of the stakeholder's question.
+
+### Step 3 - Process
+
+This step is in charge of importing, binding and cleaning the dataset. 
+
+#### 3.1 - Import and Bind
+First, the required packages are loaded.
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(here)
+library(janitor)
+library(lubridate)
+library(scales)
+```
+
+The data is then imported and saved as a nested list.
+
+```{r message=FALSE, warning=FALSE}
+
+files <- here::here("data") %>%
+  dir(full.names = TRUE)
+
+trip_data <- map(files, read_csv)
+```
+
+The next step is to join the dataframes together. The list elements have to be inspected for compatibility.
+
+```{r}
+trip_data[[1]] %>% glimpse()
+trip_data[[2]] %>% glimpse()
+```
+At a glance, it looks like the variable names and type are compatible between the datasets, to confirm this a function from the **janitor** package will be used.
+
+```{r}
+trip_data %>% compare_df_cols_same(bind_method = "bind_rows")
+```
+The datasets are compatible, these are row binded together.
+
+```{r}
+all_trips <- bind_rows(trip_data)
+```
+#### 3.2 - Data Cleaning
+It is time for the data cleaning process:
+
+The variables not needed for the analysis are removed (latitude and longitude), then the data set is inspected.
+
+```{r}
+# Remove the latitude and longitude columns, these are not required for
+# the analysis.
+all_trips <- all_trips %>%
+  select(-c(start_lat, start_lng, end_lat, end_lng))
+
+# Inspect the complete data set
+glimpse(all_trips)
+```
+Duplicate values within the variables are searched by listing the unique values.
+
+```{r}
+# Identify unique values per column
+all_trips %>%
+  summarise_all(n_distinct) %>%
+  glimpse()
+
+unique_values <- lapply(all_trips, unique)
+glimpse(unique_values)
+```
+The data looks clean so far, next the null values are searched.
+
+```{r}
+# Looking for null values in each column
+all_trips %>%
+  summarise(
+    variable = colnames(all_trips),
+    null_values = colSums(is.na(all_trips))
+  )
+```
+The null values represent the maintenance performed on the bicycles on a given day, these will be acted upon at a later stage of the cleaning process. Next, the following variables must be added to facilitate the analysis process:
+
++ Date
++ Year
++ Month
++ Day of the month
++ Day of the week
++ Starting hour
++ Ending hour
++ Weekday
++ Weekend
+
+```{r}
+weekd <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
+weeke <- c("Saturday", "Sunday")
+
+all_trips <- all_trips %>% mutate(
+  date = date(started_at),
+  year = year(started_at),
+  month = month(started_at, label = TRUE, abbr = FALSE),
+  day = day(started_at),
+  day_of_the_week = wday(started_at, label = TRUE, abbr = FALSE),
+  start_hour = hour(all_trips$started_at),
+  end_hour = hour(all_trips$ended_at),
+  weekday = (day_of_the_week %in% weekd),
+  weekend = (day_of_the_week %in% weeke)
+)
+```
+The ride length in seconds of each trip is added as a numeric value to the dataset.
+
+```{r}
+# Calculate the time in seconds of each ride
+all_trips <- all_trips %>%
+  mutate(ride_length = difftime(ended_at, started_at, units = "sec")) %>%
+  mutate(ride_length = as.numeric(ride_length)) # Convert to numeric
+```
+The data observations produced by a false start must be identified and removed, a false positive observation corresponds to a trip with a duration of less than 60 seconds, this happens when an user fails to retrieve the bicycle from a docking station.
+
+```{r}
+# Which trips have a duration under 60 seconds? (These are considered as false
+# starts due to user error).
+all_trips %>%
+  summarise(name = "Total false starts", bad_data = (sum(ride_length < 60)))
+```
+In order to remove the false starts, a new dataset is created without the bad data. (The original dataset must be preserved)
+
+```{r}
+# Delete the trips under 0 seconds (New data frame)
+all_trips_v2 <- all_trips %>% filter(ride_length >= 60)
+
+all_trips_v2 %>% # No Bad Data
+  summarise(
+    name = "Total false starts",
+    bad_data = (sum(ride_length < 60))
+  )
+```
+The maintenance days data will then be removed from the new dataset
+
+```{r}
+# Identify and remove the maintenance days data (start_station_name &
+# end_station_name == NA).
+all_trips_v2 %>%
+  summarise(
+    name = "Maintenance days",
+    not_available_start = sum(is.na(start_station_name)),
+    not_available_end = sum(is.na(end_station_name))
+  )
+
+all_trips_v2 <- all_trips_v2 %>% drop_na(start_station_name, end_station_name)
+
+all_trips_v2 %>%
+  summarise(
+    name = "Maintenance days",
+    not_available_start = sum(is.na(start_station_name)),
+    not_available_end = sum(is.na(end_station_name))
+  )
+```
+
+The dataset no longer has duplicate or null values, the data has been cleaned.
+
+```{r}
+all_trips_v2 %>%
+  summarise(
+    variable = colnames(all_trips_v2),
+    not_available = colSums(is.na(all_trips_v2))
+  )
+```
+
+
+### Step 4 & 5 - Analyze & Share
+In order to discover how the users differ from each other, the exploratory data analysis process will be applied to three main ideas:
+
++ Trip count analysis
++ Ride length analysis
++ Popular stations analysis
+
+#### 4.1 - Trip count analysis
+Casual and Annual memberships will be compared under a trip count analysis, this will help to differentiate how each membership type interacts with the services through the year, months and days. First, the yearly count of bicycle trips is obtained, which is grouped by membership type.
+
+```{r}
+# Total number of trips per membership
+all_trips_v2 %>%
+  ggplot(aes(member_casual, fill = member_casual)) +
+  geom_bar() +
+  labs(
+    title = "Total trips",
+    subtitle = "The total bicycle trips, grouped by membership type"
+  ) +
+  xlab("Membership Type") +
+  ylab("Trips") +
+  scale_fill_manual("Membership Type", values = c("#f44d4d", "#4aa5ea")) +
+  scale_y_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  theme_light()
+```
+
+
+It can be observed that the member category (users with annual membership) have a higher trip count than casual users (one-time and daily membership), this was expected because members have the option of unlimited trips in a year. 
+
+Unfortunately due to privacy constraints, the distinct user count within each membership category cannot be determined, this would have been beneficial for a more detailed analysis.
+
+Next, it is of interest to visualize how each membership category interacts with the service month to month.
+```{r}
+# Total monthly trips per membership type
+all_trips_v2 %>%
+  ggplot(aes(month, fill = member_casual)) +
+  geom_bar(position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "Total monthly trips",
+    subtitle = "The total bicycle trips, per month, grouped by membership type"
+  ) +
+  xlab("") +
+  ylab("Trips") +
+  scale_fill_manual("Membership Type", values = c("#f44d4d", "#4aa5ea")) +
+  scale_y_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  theme_light()
+```
+
+
+From this graph it can be determined that casual members are inclined to make more trips on warmer months than annual member, this might indicate that casual users tend to use the bicycles for leisure during the summer and annual members use it as a mean of transportation though the year.
+
+To gather additional information on this, the user trip count by day of the week will be computed and visualized.
+
+```{r message=FALSE}
+# Total trips per day of the week and membership type
+all_trips_v2 %>%
+  group_by(member_casual, day_of_the_week) %>%
+  summarise(total_trips = n()) %>%
+  arrange(member_casual, desc(total_trips)) %>%
+  print() %>%
+  ggplot(aes(day_of_the_week, total_trips, fill = member_casual)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Total daily trips",
+    subtitle = "The total daily bicycle trips, grouped by membership type"
+  ) +
+  xlab("") +
+  ylab("Trips") +
+  scale_fill_manual("Membership Type", values = c("#f44d4d", "#4aa5ea")) +
+  scale_y_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  theme_light()
+```
+
+
+This graph further supports the theory that casual users use the bicycles for leisure because the demand is higher on the weekends. In contrast, the annual members have a smoother demand though the week and because there is a spike in total trips during the weekday, it is believed that the bicycles are used as a mean of transport.
+
+In order to give a definitive conclusion about the hypothesis, the hourly use will be visualized for each membership category.
+
+```{r warning=FALSE, message=FALSE}
+# Total starting trips per hour by day of the week for casual members
+weekend_labs <- c("Weekday", "Weekend")
+names(weekend_labs) <- c(FALSE, TRUE)
+
+all_trips_v2 %>%
+  filter(member_casual == "casual") %>%
+  ggplot(aes(start_hour, color = day_of_the_week)) +
+  geom_freqpoly(binwidth = 1) +
+  facet_wrap(~weekend, labeller = labeller(weekend = weekend_labs)) +
+  scale_x_continuous(limits = c(0, 23.99999)) +
+  scale_y_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  scale_color_discrete(name = "day of the week") +
+  labs(
+    title = "Casual Member: total daily trips by the hour",
+    subtitle = paste(
+      "The total hourly bicycle trips per day of the week for",
+      " casual members, grouped by day of the week"
+    )
+  ) +
+  xlab("Time of the day") +
+  ylab("Trips") +
+  theme_light()
+
+# Total trips per hour by average weekday and weekend, for casual members
+weekday_data <- all_trips_v2 %>%
+  filter(weekend == FALSE, member_casual == "casual") %>%
+  group_by(start_hour, day_of_the_week) %>%
+  summarise(n = n()) %>%
+  group_by(start_hour) %>%
+  summarise(avg = mean(n))
+
+weekend_data <- all_trips_v2 %>%
+  filter(weekend == TRUE, member_casual == "casual") %>%
+  group_by(start_hour, day_of_the_week) %>%
+  summarise(n = n()) %>%
+  group_by(start_hour) %>%
+  summarise(avg = mean(n))
+
+ggplot() +
+  geom_freqpoly(
+    data = weekday_data,
+    aes(x = start_hour, y = avg, color = "Weekday"),
+    stat = "identity"
+  ) +
+  geom_freqpoly(
+    data = weekend_data,
+    aes(x = start_hour, y = avg, color = "Weekend"),
+    stat = "identity"
+  ) +
+  scale_x_continuous(limits = c(0, 23.99999)) +
+  labs(
+    title = paste(
+      "Casual Members: weekday & weekend average", " hourly trips by the hour"
+    ),
+    subtitle = paste(
+      "The average hourly bicycle trips for casual members, ",
+      "grouped by weekday and weekend"
+    )
+  ) +
+  xlab("Time of the day") +
+  ylab("Trips") +
+  scale_y_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  scale_color_manual(
+    name = "Days of the week",
+    values = c("#f44d4d", "#4aa5ea")
+  ) +
+  theme_light()
+```
+
+
+This graph represents the preference for the time of the day of casual users to use the bicycle services each day. As expected, it can be observed that there is a higher demand during the weekend. Surprisingly, the users in this category are using the services as a mean of transportation during the weekday, shown by the peak of demand during the rush hour.
+
+The same visualization will be made to users with an annual membership.
+
+```{r warning=FALSE, message=FALSE}
+# Total trips per hour by day of the week for members
+all_trips_v2 %>%
+  filter(member_casual == "member") %>%
+  group_by(day_of_the_week) %>%
+  ggplot(aes(start_hour, color = day_of_the_week)) +
+  geom_freqpoly(binwidth = 1) +
+  scale_x_continuous(limits = c(0, 23.99999)) +
+  scale_y_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  scale_color_discrete(name = "day of the week") +
+  xlab("hour of the day") +
+  ylab("trips") +
+  labs(
+    title = "Annual Member: total daily trips by the hour",
+    subtitle = paste(
+      "The total hourly bicycle trips per day of the week for annual members, ",
+      "grouped by day of the week"
+    )
+  ) +
+  theme_light()
+
+# Total trips per hour by average weekday and weekend, for annual members
+weekday_data_mem <- all_trips_v2 %>%
+  filter(weekend == FALSE, member_casual == "member") %>%
+  group_by(start_hour, day_of_the_week) %>%
+  summarise(n = n()) %>%
+  group_by(start_hour) %>%
+  summarise(avg = mean(n))
+
+weekend_data_mem <- all_trips_v2 %>%
+  filter(weekend == TRUE, member_casual == "member") %>%
+  group_by(start_hour, day_of_the_week) %>%
+  summarise(n = n()) %>%
+  group_by(start_hour) %>%
+  summarise(avg = mean(n))
+
+ggplot() +
+  geom_freqpoly(
+    data = weekday_data_mem,
+    aes(x = start_hour, y = avg, color = "Weekday"),
+    stat = "identity"
+  ) +
+  geom_freqpoly(
+    data = weekend_data_mem,
+    aes(x = start_hour, y = avg, color = "Weekend"),
+    stat = "identity"
+  ) +
+  scale_x_continuous(limits = c(0, 23.99999)) +
+  scale_y_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  scale_color_manual(
+    name = "day of the week",
+    values = c("#f44d4d", "#4aa5ea")
+  ) +
+  xlab("hour of the day") +
+  ylab("trips") +
+  labs(
+    title = paste(
+      "Annual Members: weekday & weekend average",
+      " hourly trips by the hour"
+    ),
+    subtitle = paste(
+      "The average hourly bicycle trips for annual members, ",
+      "grouped by weekday and weekend"
+    )
+  ) +
+  theme_light()
+```
+
+
+It can safely be concluded that annual members have a higher demand for bicycles during rush hours on the weekday, this confirms the hypothesis that annual members use the ride-share services primarily as a mean of transportation.
+
+The memberships will be compared by average weekday and weekend demand for the identification of the demand gap.
+
+```{r}
+# Total trips per hour by average weekday, comparing membership type
+ggplot() +
+  geom_freqpoly(
+    data = weekday_data,
+    aes(x = start_hour, y = avg, color = "Casual"),
+    stat = "identity"
+  ) +
+  geom_freqpoly(
+    data = weekday_data_mem,
+    aes(x = start_hour, y = avg, color = "Member"),
+    stat = "identity"
+  ) +
+  scale_x_continuous(limits = c(0, 23.99999)) +
+  scale_y_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  scale_color_manual(
+    name = "Type of Member",
+    values = c("#f44d4d", "#4aa5ea")
+  ) +
+  xlab("hour of the day") +
+  ylab("trips") +
+  labs(
+    title = "Total average weekday trips",
+    subtitle = paste(
+      "The total average weekday trips, grouped",
+      " by casual and annual members"
+    )
+  ) +
+  theme_light()
+
+# Total trips per hour by average weekend, comparing membership type
+ggplot() +
+  geom_freqpoly(
+    data = weekend_data,
+    aes(x = start_hour, y = avg, color = "Casual"),
+    stat = "identity"
+  ) +
+  geom_freqpoly(
+    data = weekend_data_mem,
+    aes(x = start_hour, y = avg, color = "Member"),
+    stat = "identity"
+  ) +
+  scale_x_continuous(limits = c(0, 23.99999)) +
+  scale_y_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  scale_color_manual(
+    name = "Type of Member",
+    values = c("#f44d4d", "#4aa5ea")
+  ) +
+  xlab("hour of the day") +
+  ylab("trips") +
+  labs(
+    title = "Total average weekend trips",
+    subtitle = paste(
+      "The total average weekend trips, grouped",
+      " by casual and annual members"
+    )
+  ) +
+  theme_light()
+```
+
+
+Given that annual members mostly use the services as a mean of transportation, the first graph (weekday comparison) will be given a higher priority. 
+
+The identified area of opportunity for the company to convert casual users into annual members lies in a targeted marketing campaign focused in casual members that use the bicycles as a mean of transportation during the weekdays.
+
+#### 4.2 - Ride length analysis
+
+The next step in the analysis process involves the identification of the differences in trip duration between annual and casual members. First, the ride length distribution will be visualized in order to inspect the dataset outliers.
+
+
+```{r message=FALSE}
+# Statistics about the ride length
+(ride_length_stat <- summary(all_trips_v2$ride_length))
+
+all_trips_v2 %>%
+  ggplot(aes(ride_length)) +
+  geom_boxplot() +
+  scale_x_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  scale_y_discrete(label = "") +
+  xlab("ride length") +
+  labs(
+    title = "Ride length",
+    subtitle = "The distribution of the ride length variable"
+  ) +
+  theme_light()
+```
+
+
+It can be observed that the data contains extreme outliers that will skew the analysis results, to fix this the outliers will be filtered out.
+
+```{r}
+# Assigning the filter limit for the outliers
+outlier_limit <- (ride_length_stat["3rd Qu."] + # Removing outliers
+  1.5 * IQR(all_trips_v2$ride_length))
+
+# Visualizing ride_length (no outliers)
+all_trips_v2 %>%
+  filter(ride_length < outlier_limit) %>%
+  ggplot(aes(ride_length)) +
+  geom_boxplot() +
+  scale_x_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  scale_y_discrete(label = "") +
+  xlab("ride length") +
+  labs(
+    title = "Ride length",
+    subtitle = paste(
+      "The distribution of the ride length",
+      " variable without the previous outliers"
+    )
+  ) +
+  theme_light()
+```
+
+
+As seen above, a cleaner distribution is obtained without the extreme outliers. The ride length analysis process will start by analyzing the average trip duration grouped by membership type.
+
+```{r}
+# Average trip duration per member type
+all_trips_v2 %>%
+  filter(ride_length < outlier_limit) %>%
+  group_by(member_casual) %>%
+  summarise(average_length = mean(ride_length))
+
+all_trips_v2 %>%
+  filter(ride_length < outlier_limit) %>%
+  ggplot(aes(ride_length, fill = member_casual)) +
+  geom_boxplot(outlier.shape = NA) +
+  scale_x_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  scale_y_discrete(label = "") +
+  scale_fill_discrete(name = "Type of Membership") +
+  xlab("ride length") +
+  labs(
+    title = "Ride length per membership",
+    subtitle = paste(
+      "The distribution of the ride length variable",
+      " (without outliers), grouped by membership"
+    )
+  ) +
+  theme_light()
+
+all_trips_v2 %>%
+  filter(ride_length < outlier_limit) %>%
+  ggplot(aes(ride_length, fill = member_casual)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~member_casual, nrow = 2) +
+  scale_x_continuous(
+    labels = comma_format(big.mark = ",", decimal.mark = ".")
+  ) +
+  scale_fill_manual(
+    name = "Membership Type",
+    values = c("#f44d4d", "#4aa5ea")
+  ) +
+  xlab("ride length") +
+  labs(
+    title = "Density distribution of Ride length",
+    subtitle = "The distribution of the ride length, grouped by membership"
+  ) +
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank(),
+    panel.background = element_rect(fill = "white")
+  )
+```
+
+
+The box plot and the density distribution indicates that annual members have shorter trips in time length than casual members.
+
+Next, the average trip duration per month is visualized, grouped by membership type.
+
+
+```{r message=FALSE}
+# Average trip duration each month per membership
+all_trips_v2 %>%
+  filter(ride_length < outlier_limit) %>%
+  group_by(month, member_casual) %>%
+  summarise(ride_length = mean(ride_length)) %>%
+  ggplot(aes(month, ride_length, fill = member_casual)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  coord_flip() +
+  xlab("") +
+  ylab("ride length") +
+  labs(
+    title = "Average trip duration per month",
+    subtitle = paste(
+      "The average trip duration in seconds",
+      " per month, grouped by membership type"
+    )
+  ) +
+  scale_fill_manual(
+    name = "Membership Type",
+    values = c("#f44d4d", "#4aa5ea")
+  ) +
+  theme_light()
+```
+
+
+On average, the monthly trip duration for annual members is lower than casual members. Finally the average trip duration per day of the week is computed and visualized.
+
+```{r message=FALSE}
+# Average trip duration per membership and day of the week
+all_trips_v2 %>%
+  filter(ride_length < outlier_limit) %>%
+  group_by(member_casual, day_of_the_week) %>%
+  summarise(average_duration = mean(ride_length)) %>%
+  ggplot(aes(day_of_the_week, average_duration, fill = member_casual)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("day of the week") +
+  ylab("trip duration") +
+  labs(
+    title = "Average trip duration per day of the week",
+    subtitle = paste(
+      "The average trip duration in seconds per day ",
+      "of the week, grouped by membership type"
+    )
+  ) +
+  scale_fill_manual(
+    name = "Membership Type", values = c("#f44d4d", "#4aa5ea")
+  ) +
+  theme_light()
+
+all_trips_v2 %>%
+  filter(ride_length < outlier_limit) %>%
+  group_by(member_casual, day_of_the_week) %>%
+  summarise(average_duration = mean(ride_length)) %>%
+  arrange(member_casual, desc(average_duration))
+```
+
+
+It can be concluded from the previous graphs that annual members on average will have a tendency to have shorter trips than casual members.
+
+#### 4.3 - Popular stations analysis
+To conclude the analysis process, the top ten popular starting stations for annual and casual users will be computed and analyzed, this will provide the marketing team a reference for the targeted marketing campaign.
+
+
+```{r message=FALSE}
+# Popular stations among casual users
+all_trips_v2 %>% # Casual Stations
+  filter(member_casual == "casual") %>%
+  count(start_station_name, sort = TRUE) %>%
+  top_n(10) %>%
+  print() %>%
+  ggplot(aes(x = n, y = reorder(start_station_name, n))) +
+  geom_bar(stat = "identity", fill = "#f44d4d") +
+  xlab("trips") +
+  ylab("") +
+  labs(
+    title = "Casual Members: Popular stations",
+    subtitle = "The top ten most popular stations among casual members"
+  ) +
+  theme_minimal()
+
+# Popular stations among annual membership holders
+all_trips_v2 %>%
+  filter(member_casual == "member") %>%
+  count(start_station_name, sort = TRUE) %>%
+  top_n(10) %>%
+  print() %>%
+  ggplot(aes(x = n, y = reorder(start_station_name, n))) +
+  geom_bar(stat = "identity", fill = "#4aa5ea") +
+  xlab("trips") +
+  ylab("") +
+  labs(
+    title = "Annual Members: Popular stations",
+    subtitle = "The top ten most popular stations among annual members"
+  ) +
+  theme_minimal()
+```
+
+
+It can be seen that most of the casual members trips starts from a touristic location and that annual members start their trips from an urban locations. It is recommended to target the marketing campaign to casual users that start their trips from urban areas, specially if started from one of the top annual members stations.
+
+### Step 6 - Act
+The data-driven insights obtained from the previous analysis will be summarized and recommendations for the marketing campaign will be given.
+
+#### 6.1 - Conclusions
+##### Trip count
++ Annual members have a higher trip count than casual users in a year.
++ Casual members will make more trips during summer months than annual members.
++ Casual users have a higher demand during the weekend, annual users have a higher demand during the weekday.
++ Casual users will on average make more trips on weekend days than work days.
++ Some casual users are taking trips during the weekday as a mean of transport.
++ Annual members have a higher demand on weekdays during rushing hours than weekend days.
++ Most of the annual members are using the bicycles as a mean of transportation during rush hours.
++ There is a demand gap between annual and casual members on weekdays during rush hour, this can be considered an area of opportunity.
+
+##### Ride duration
++ Annual members have a shorter trip duration than casual members during the year.
++ Annual members will consistently have a shorter monthly trip duration than casual members.
++ Annual members will consistently have a shorter daily trip duration than casual members.
++ Annual members have a shorter ride duration than casual members.
+
+##### Popular stations
++ Most of the casual member trips starts from a touristic location.
++ Most of the annual member trips starts from an urban location.
+
+#### 6.2 - Recommendations
+1. The marketing campaign should be focused on casual users that makes more trips on a week than the casual membership average.
+2. The marketing campaign should be focused on casual users that takes trips during the weekdays rush hours.
+3. The marketing campaign should be focused on casual users with an average trip duration similar to an annual member.
+4. The marketing campaign should be focused on casual users that start their trips from an urban location, specially the station is included in the top ten popular station among annual members.
+
+#### 6.3 - Improvements
+The analysis can be further improved with data relevant to each user registered with the company, which is currently not present due to privacy concerns. In addition, a market segmentation analysis will improve the marketing campaign effectiveness.
+
+
