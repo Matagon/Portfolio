@@ -9,13 +9,13 @@ and **Business Intelligence**. Please feel free to browse the projects below:
 ---
 
 Programming languages used:
-- Python
-- SQL
+- Python 🐍 
+- SQL 💾 
 
 Software used:
-- Tableau
-- Jupyter Notebook
-- MySQL Server
+- Tableau 📊
+- Jupyter Notebook 📚 
+- MySQL Server 💾 
 
 Summary:
 
@@ -32,10 +32,10 @@ using *SQL queries* the data is extracted and saved on a CSV file for analysis. 
 ---
 
 Programming languages used:
-- Python
+- Python 🐍 
 
 Software used:
-- Jupyter Notebook
+- Jupyter Notebook 📚 
 
 Summary:
 
@@ -47,10 +47,10 @@ extraction of the insights. More than 5 million rows were analyzed in this proje
 ---
 
 Programming languages used:
-- R
+- R 🧮
 
 Software used:
-- R Markdown
+- R Markdown 📓
 
 Summary:
 
